@@ -35,17 +35,25 @@ class MainActivity : ComponentActivity() {
         if (code != null) fire(code)
     }
 
-    private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val permissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            LocationRepo.start(this)
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Repo.init(this)
+        val need = ArrayList<String>()
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            need.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            need.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            need.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        if (need.isNotEmpty()) permissions.launch(need.toTypedArray())
         TimerService.sync(this)
         setContent { AppRoot(this) }
         lifecycleScope.launch {
@@ -117,6 +125,16 @@ class MainActivity : ComponentActivity() {
                 Haptics.ok(this)
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        LocationRepo.start(this)
+    }
+
+    override fun onStop() {
+        LocationRepo.stop()
+        super.onStop()
     }
 
     override fun onDestroy() {

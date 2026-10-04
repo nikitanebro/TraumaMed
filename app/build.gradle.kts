@@ -10,10 +10,10 @@ android {
 
     defaultConfig {
         applicationId = "ru.medic.kpk"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 2
+        versionName = "0.2"
     }
 
     // Постоянный ключ: обновления ставятся поверх старой версии без потери данных.

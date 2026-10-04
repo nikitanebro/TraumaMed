@@ -11,12 +11,38 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class Limb(val abbr: String, val full: String) {
-    UNKNOWN("?", "не указана"),
-    LEFT_ARM("ЛР", "левая рука"),
-    RIGHT_ARM("ПР", "правая рука"),
-    LEFT_LEG("ЛН", "левая нога"),
-    RIGHT_LEG("ПН", "правая нога"),
+/** Зоны тела. Право/лево — раненого (на схеме он смотрит на тебя, его правая сторона слева). */
+enum class Region(val label: String, val abbr: String) {
+    UNKNOWN("не указано", "?"),
+    HEAD("голова", "Гол"),
+    NECK("шея", "Шея"),
+    CHEST("грудь", "Гр"),
+    ABDOMEN("живот", "Жив"),
+    PELVIS("таз", "Таз"),
+    BACK("спина", "Сп"),
+    RIGHT_ARM("правая рука", "ПР"),
+    LEFT_ARM("левая рука", "ЛР"),
+    RIGHT_LEG("правая нога", "ПН"),
+    LEFT_LEG("левая нога", "ЛН"),
+}
+
+enum class Limb(val abbr: String, val full: String, val region: Region) {
+    UNKNOWN("?", "не указана", Region.UNKNOWN),
+    RIGHT_ARM("ПР", "правая рука", Region.RIGHT_ARM),
+    LEFT_ARM("ЛР", "левая рука", Region.LEFT_ARM),
+    RIGHT_LEG("ПН", "правая нога", Region.RIGHT_LEG),
+    LEFT_LEG("ЛН", "левая нога", Region.LEFT_LEG),
+}
+
+enum class InjuryType(val label: String, val full: String) {
+    GUNSHOT("Пулевое", "огнестрельное пулевое"),
+    FRAGMENT("Осколочное", "осколочное"),
+    BLAST("МВТ", "минно-взрывная травма"),
+    BURN("Ожог", "термический ожог"),
+    FRACTURE("Перелом", "перелом"),
+    AMPUTATION("Ампутация", "травматическая ампутация"),
+    TBI("ЧМТ", "черепно-мозговая, контузия"),
+    OTHER("Другое", "другое"),
 }
 
 data class Tourniquet(
@@ -30,11 +56,21 @@ data class Tourniquet(
     val active: Boolean get() = removedAt == null
 }
 
+data class Injury(
+    val id: Long,
+    val type: InjuryType,
+    val region: Region,
+    val at: Long,
+)
+
 data class Casualty(
     val id: Long,
     val number: Int,
     val createdAt: Long,
     val tourniquets: List<Tourniquet> = emptyList(),
+    val injuries: List<Injury> = emptyList(),
+    val lat: Double? = null,
+    val lon: Double? = null,
 )
 
 data class Settings(
@@ -45,6 +81,11 @@ data class Settings(
     val keysEnabled: Boolean = true,
     val tqKey: Int = KeyEvent.KEYCODE_VOLUME_UP,
     val markKey: Int = KeyEvent.KEYCODE_VOLUME_DOWN,
+    val activeMap: String? = null,
+    val grid: Boolean = true,
+    val mapLat: Double = 55.7512,
+    val mapLon: Double = 37.6184,
+    val mapZoom: Double = 10.0,
 )
 
 data class AppState(
@@ -93,11 +134,19 @@ object Repo {
     fun hasActive(): Boolean =
         _state.value.casualties.any { c -> c.tourniquets.any { it.active } }
 
+    /** Новый раненый. Координаты берутся из свежей отметки GPS, если она есть. */
     fun addCasualty(): Long {
         val now = System.currentTimeMillis()
         val id = newId()
+        val fix = LocationRepo.freshFix()
         update { s ->
-            val c = Casualty(id = id, number = s.nextNumber, createdAt = now)
+            val c = Casualty(
+                id = id,
+                number = s.nextNumber,
+                createdAt = now,
+                lat = fix?.latitude,
+                lon = fix?.longitude,
+            )
             s.copy(casualties = s.casualties + c, selectedId = id, nextNumber = s.nextNumber + 1)
         }
         return id
@@ -143,6 +192,30 @@ object Repo {
             if (critical) it.copy(warnFired = true, critFired = true) else it.copy(warnFired = true)
         }
 
+    fun addInjury(casualtyId: Long, type: InjuryType, region: Region) {
+        val i = Injury(id = newId(), type = type, region = region, at = System.currentTimeMillis())
+        update { s ->
+            s.copy(
+                casualties = s.casualties.map { c ->
+                    if (c.id == casualtyId) c.copy(injuries = c.injuries + i) else c
+                },
+                selectedId = casualtyId,
+            )
+        }
+    }
+
+    fun removeInjury(casualtyId: Long, injuryId: Long) = update { s ->
+        s.copy(casualties = s.casualties.map { c ->
+            if (c.id == casualtyId) c.copy(injuries = c.injuries.filterNot { it.id == injuryId }) else c
+        })
+    }
+
+    fun setPosition(casualtyId: Long, lat: Double, lon: Double) = update { s ->
+        s.copy(casualties = s.casualties.map { c ->
+            if (c.id == casualtyId) c.copy(lat = lat, lon = lon) else c
+        })
+    }
+
     fun setSettings(transform: (Settings) -> Settings) =
         update { it.copy(settings = transform(it.settings)) }
 
@@ -166,6 +239,11 @@ object Repo {
         st.put("keys", s.settings.keysEnabled)
         st.put("tqKey", s.settings.tqKey)
         st.put("markKey", s.settings.markKey)
+        st.put("map", s.settings.activeMap ?: JSONObject.NULL)
+        st.put("grid", s.settings.grid)
+        st.put("mapLat", s.settings.mapLat)
+        st.put("mapLon", s.settings.mapLon)
+        st.put("mapZoom", s.settings.mapZoom)
         o.put("settings", st)
         val arr = JSONArray()
         for (c in s.casualties) {
@@ -173,6 +251,8 @@ object Repo {
             co.put("id", c.id)
             co.put("number", c.number)
             co.put("createdAt", c.createdAt)
+            co.put("lat", c.lat ?: JSONObject.NULL)
+            co.put("lon", c.lon ?: JSONObject.NULL)
             val tq = JSONArray()
             for (t in c.tourniquets) {
                 val to = JSONObject()
@@ -185,11 +265,24 @@ object Repo {
                 tq.put(to)
             }
             co.put("tq", tq)
+            val inj = JSONArray()
+            for (i in c.injuries) {
+                val io = JSONObject()
+                io.put("id", i.id)
+                io.put("type", i.type.name)
+                io.put("region", i.region.name)
+                io.put("at", i.at)
+                inj.put(io)
+            }
+            co.put("inj", inj)
             arr.put(co)
         }
         o.put("casualties", arr)
         return o
     }
+
+    private fun JSONObject.optDoubleOrNull(name: String): Double? =
+        if (has(name) && !isNull(name)) optDouble(name).takeIf { !it.isNaN() } else null
 
     private fun decode(o: JSONObject): AppState {
         val d = Settings()
@@ -202,6 +295,11 @@ object Repo {
             keysEnabled = st.optBoolean("keys", d.keysEnabled),
             tqKey = st.optInt("tqKey", d.tqKey),
             markKey = st.optInt("markKey", d.markKey),
+            activeMap = if (st.has("map") && !st.isNull("map")) st.getString("map") else null,
+            grid = st.optBoolean("grid", d.grid),
+            mapLat = st.optDoubleOrNull("mapLat") ?: d.mapLat,
+            mapLon = st.optDoubleOrNull("mapLon") ?: d.mapLon,
+            mapZoom = st.optDoubleOrNull("mapZoom") ?: d.mapZoom,
         )
         val arr = o.optJSONArray("casualties") ?: JSONArray()
         val list = ArrayList<Casualty>()
@@ -222,12 +320,28 @@ object Repo {
                     )
                 )
             }
+            val injArr = c.optJSONArray("inj") ?: JSONArray()
+            val injuries = ArrayList<Injury>()
+            for (j in 0 until injArr.length()) {
+                val io = injArr.getJSONObject(j)
+                injuries.add(
+                    Injury(
+                        id = io.getLong("id"),
+                        type = runCatching { InjuryType.valueOf(io.getString("type")) }.getOrDefault(InjuryType.OTHER),
+                        region = runCatching { Region.valueOf(io.getString("region")) }.getOrDefault(Region.UNKNOWN),
+                        at = io.getLong("at"),
+                    )
+                )
+            }
             list.add(
                 Casualty(
                     id = c.getLong("id"),
                     number = c.getInt("number"),
                     createdAt = c.getLong("createdAt"),
                     tourniquets = tqs,
+                    injuries = injuries,
+                    lat = c.optDoubleOrNull("lat"),
+                    lon = c.optDoubleOrNull("lon"),
                 )
             )
         }
@@ -251,3 +365,10 @@ fun formatElapsed(ms: Long): String {
 
 fun formatClock(epochMs: Long): String =
     SimpleDateFormat("HH:mm", Locale.forLanguageTag("ru")).format(Date(epochMs))
+
+/** «X 6 181 832  Y 7 413 366» или null, если координат нет. */
+fun formatSk42(lat: Double?, lon: Double?): String? {
+    if (lat == null || lon == null) return null
+    val g = Sk42.fromWgs(lat, lon)
+    return "X ${Sk42.format(g.x)}  Y ${Sk42.format(g.y)}"
+}
