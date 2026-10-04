@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Значок в шторке уведомлений: тот же крест, одним цветом. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9.5,2 L14.5,2 L16,3.5 L16,8 L20.5,8 L22,9.5 L22,14.5 L20.5,16 L16,16 L16,20.5 L14.5,22 L9.5,22 L8,20.5 L8,16 L3.5,16 L2,14.5 L2,9.5 L3.5,8 L8,8 L8,3.5 Z" />
+</vector>
