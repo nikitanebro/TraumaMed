@@ -30,11 +30,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -55,7 +58,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -147,6 +153,8 @@ private fun MainScreen(state: AppState, now: Long, onSettings: () -> Unit, onMap
     var confirmRemove by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var confirmInjury by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var confirmDelete by remember { mutableStateOf<Long?>(null) }
+    var noteFor by remember { mutableStateOf<Long?>(null) }
+    var confirmNote by remember { mutableStateOf<Pair<Long, Long>?>(null) }
 
     fun target(): Long =
         state.selectedId?.takeIf { id -> state.casualties.any { it.id == id } } ?: Repo.addCasualty()
@@ -219,6 +227,8 @@ private fun MainScreen(state: AppState, now: Long, onSettings: () -> Unit, onMap
                             onLimb = { t -> limbChange = c.id to t.id },
                             onRemoveTq = { t -> confirmRemove = c.id to t.id },
                             onRemoveInjury = { i -> confirmInjury = c.id to i.id },
+                            onAddNote = { noteFor = c.id },
+                            onRemoveNote = { n -> confirmNote = c.id to n.id },
                             onDelete = { confirmDelete = c.id },
                         )
                     }
@@ -238,6 +248,7 @@ private fun MainScreen(state: AppState, now: Long, onSettings: () -> Unit, onMap
             }
             RailButton("Жгут", Glyph.TOURNIQUET, Red, Color.White, Modifier.weight(1f)) { limbFor = target() }
             RailButton("Ранение", Glyph.WOUND, Neutral, Fg, Modifier.weight(1f)) { injuryFor = target() }
+            RailButton("Помощь", Glyph.NOTE, Neutral, Fg, Modifier.weight(1f)) { noteFor = target() }
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 RailButton("Карта", Glyph.MAP, Olive, Bg, Modifier.weight(1f)) { onMap() }
                 RailButton("", Glyph.SETTINGS, Neutral, Fg, Modifier.width(60.dp)) { onSettings() }
@@ -269,6 +280,33 @@ private fun MainScreen(state: AppState, now: Long, onSettings: () -> Unit, onMap
                 injuryFor = null
             },
             onDismiss = { injuryFor = null },
+        )
+    }
+
+    noteFor?.let { cid ->
+        val c = state.casualties.firstOrNull { it.id == cid }
+        NoteDialog(
+            number = c?.number,
+            onLog = { proc, text ->
+                Repo.addNote(cid, proc, text)
+                Haptics.ok(ctx)
+            },
+            onDismiss = { noteFor = null },
+        )
+    }
+
+    confirmNote?.let { (cid, nid) ->
+        val c = state.casualties.firstOrNull { it.id == cid }
+        val n = c?.notes?.firstOrNull { it.id == nid }
+        ConfirmDialog(
+            text = "Убрать запись «${n?.title ?: ""}» у раненого №${c?.number ?: ""}?",
+            confirmLabel = "Убрать",
+            accent = Yellow,
+            onConfirm = {
+                Repo.removeNote(cid, nid)
+                confirmNote = null
+            },
+            onDismiss = { confirmNote = null },
         )
     }
 
@@ -355,6 +393,8 @@ private fun CasualtyCard(
     onLimb: (Tourniquet) -> Unit,
     onRemoveTq: (Tourniquet) -> Unit,
     onRemoveInjury: (Injury) -> Unit,
+    onAddNote: () -> Unit,
+    onRemoveNote: (Note) -> Unit,
     onDelete: () -> Unit,
 ) {
     val shape = RoundedCornerShape(10.dp)
@@ -405,10 +445,17 @@ private fun CasualtyCard(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (c.notes.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                for (n in c.notes) NoteLine(n) { onRemoveNote(n) }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             CardAction("Жгут", Glyph.TOURNIQUET, Red, Modifier.weight(1f), onAddTq)
             CardAction("Ранение", Glyph.WOUND, Fg, Modifier.weight(1f), onAddInjury)
-            CardAction("", Glyph.DELETE, Fg2, Modifier.width(56.dp), onDelete)
+            CardAction("Помощь", Glyph.NOTE, Fg, Modifier.weight(1f), onAddNote)
+            CardAction("Удалить", Glyph.DELETE, Fg2, Modifier.weight(0.8f), onDelete)
         }
     }
 }
@@ -509,17 +556,35 @@ private fun InjuryChip(i: Injury, onClick: () -> Unit) {
 }
 
 @Composable
+private fun NoteLine(n: Note, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { onClick() }
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(formatClock(n.at), color = Fg2, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+        Spacer(Modifier.width(6.dp))
+        GlyphIcon(n.proc?.glyph ?: Glyph.NOTE, Modifier.size(18.dp), Fg, alpha = 0.55f)
+        Spacer(Modifier.width(6.dp))
+        Text(n.title, color = Fg, fontSize = 14.sp)
+    }
+}
+
+/** Кнопка карточки: значок сверху, подпись снизу, чтобы четыре влезали в узкую карточку. */
+@Composable
 private fun CardAction(label: String, glyph: Glyph, color: Color, modifier: Modifier, onClick: () -> Unit) {
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.height(52.dp),
+        modifier = modifier.height(56.dp),
         border = BorderStroke(1.dp, if (color == Red) Red else Line),
-        contentPadding = PaddingValues(horizontal = 8.dp),
+        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
     ) {
-        GlyphIcon(glyph, Modifier.size(24.dp), color, alpha = if (label.isEmpty()) 0.85f else 0.5f)
-        if (label.isNotEmpty()) {
-            Spacer(Modifier.width(6.dp))
-            Text("+ $label", color = color, fontSize = 16.sp, maxLines = 1)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            GlyphIcon(glyph, Modifier.size(24.dp), color, alpha = 0.6f)
+            Text(label, color = color, fontSize = 12.sp, maxLines = 1)
         }
     }
 }
@@ -565,7 +630,12 @@ internal fun PanelDialog(onDismiss: () -> Unit, content: @Composable ColumnScope
 }
 
 @Composable
-internal fun DialogHeader(title: String, onClose: () -> Unit, onBack: (() -> Unit)? = null) {
+internal fun DialogHeader(
+    title: String,
+    onClose: () -> Unit,
+    onBack: (() -> Unit)? = null,
+    closeLabel: String = "Отмена",
+) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (onBack != null) {
             OutlinedButton(onClick = onBack, modifier = Modifier.height(48.dp)) {
@@ -573,7 +643,7 @@ internal fun DialogHeader(title: String, onClose: () -> Unit, onBack: (() -> Uni
             }
         }
         Text(title, color = Fg, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        TextButton(onClick = onClose, modifier = Modifier.height(48.dp)) { Text("Отмена", fontSize = 16.sp) }
+        TextButton(onClick = onClose, modifier = Modifier.height(48.dp)) { Text(closeLabel, fontSize = 16.sp) }
     }
 }
 
@@ -612,6 +682,7 @@ private fun ChoiceButton(
     modifier: Modifier,
     accent: Color,
     onClick: () -> Unit,
+    titleSize: TextUnit = 18.sp,
     icon: @Composable (Modifier, Color) -> Unit,
 ) {
     val shape = RoundedCornerShape(10.dp)
@@ -630,7 +701,7 @@ private fun ChoiceButton(
             accent,
         )
         Column(Modifier.align(Alignment.BottomCenter), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(title, color = Fg, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 1)
+            Text(title, color = Fg, fontSize = titleSize, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 1)
             if (subtitle != null) Text(subtitle, color = Fg2, fontSize = 11.sp, maxLines = 1)
         }
     }
@@ -714,6 +785,79 @@ private fun InjuryDialog(number: Int?, onDone: (InjuryType, Region) -> Unit, onD
                 }
             }
         }
+    }
+}
+
+/**
+ * Журнал помощи. Тап по манипуляции сразу записывает её со временем, диалог остаётся открытым,
+ * чтобы отметить несколько подряд. Текст из поля (препарат, доза, место) уходит в ту же запись.
+ */
+@Composable
+private fun NoteDialog(number: Int?, onLog: (Procedure?, String) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf("") }
+    var last by remember { mutableStateOf<String?>(null) }
+
+    fun log(proc: Procedure?) {
+        if (proc == null && text.isBlank()) return
+        onLog(proc, text)
+        last = (proc?.full ?: text.trim()) + " · " + formatClock(System.currentTimeMillis())
+        text = ""
+    }
+
+    PanelDialog(onDismiss) {
+        DialogHeader("Помощь" + (number?.let { ": раненый №$it" } ?: ""), onDismiss, closeLabel = "Готово")
+        last?.let {
+            Text("Записано: $it", color = Olive, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Подробности или своя заметка: препарат, доза, место…", fontSize = 14.sp) },
+                maxLines = 3,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(onDone = { log(null) }),
+            )
+            Button(
+                onClick = { log(null) },
+                enabled = text.isNotBlank(),
+                modifier = Modifier.height(56.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Olive, contentColor = Bg),
+            ) {
+                GlyphIcon(Glyph.NOTE, Modifier.size(24.dp), Bg, alpha = 0.6f)
+                Spacer(Modifier.width(6.dp))
+                Text("Записать", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        for (row in Procedure.entries.chunked(6)) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(92.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                for (p in row) {
+                    ChoiceButton(
+                        p.label, null,
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        Olive,
+                        onClick = { log(p) },
+                        titleSize = 14.sp,
+                    ) { m, col -> GlyphIcon(p.glyph, m, col, alpha = 0.45f) }
+                }
+            }
+        }
+        Text(
+            "Тап по манипуляции — запись с текущим временем. Если в поле есть текст, он добавится к ней.",
+            color = Fg2, fontSize = 12.sp,
+        )
     }
 }
 

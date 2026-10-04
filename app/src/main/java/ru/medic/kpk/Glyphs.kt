@@ -24,7 +24,25 @@ enum class Glyph {
     CASUALTY, TOURNIQUET, WOUND, MAP, SETTINGS, DELETE, REMOVE, LOCATE,
     ZOOM_IN, ZOOM_OUT, GRID, PIN, BACK, LAYERS,
     GUNSHOT, FRAGMENT, BLAST, BURN, FRACTURE, AMPUTATION, TBI, OTHER,
+    NOTE, PRESSURE, PACKING, HEMOSTATIC, CHEST_SEAL, DECOMPRESSION, AIRWAY, CRIC,
+    ANALGESIA, TXA, INFUSION, SPLINT, WARMING,
 }
+
+val Procedure.glyph: Glyph
+    get() = when (this) {
+        Procedure.PRESSURE -> Glyph.PRESSURE
+        Procedure.PACKING -> Glyph.PACKING
+        Procedure.HEMOSTATIC -> Glyph.HEMOSTATIC
+        Procedure.CHEST_SEAL -> Glyph.CHEST_SEAL
+        Procedure.DECOMPRESSION -> Glyph.DECOMPRESSION
+        Procedure.AIRWAY -> Glyph.AIRWAY
+        Procedure.CRIC -> Glyph.CRIC
+        Procedure.ANALGESIA -> Glyph.ANALGESIA
+        Procedure.TXA -> Glyph.TXA
+        Procedure.INFUSION -> Glyph.INFUSION
+        Procedure.SPLINT -> Glyph.SPLINT
+        Procedure.WARMING -> Glyph.WARMING
+    }
 
 val InjuryType.glyph: Glyph
     get() = when (this) {
@@ -117,6 +135,16 @@ private class Pen(val scope: DrawScope, val color: Color, strokeK: Float = 0.08f
             path, color,
             style = if (fill) Fill else Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round),
         )
+    }
+
+    /** Капля: контур для ожога и гемостатика. */
+    fun drop() {
+        val path = Path()
+        path.moveTo(ox + 0.5f * s, oy + 0.06f * s)
+        path.cubicTo(ox + 0.86f * s, oy + 0.42f * s, ox + 0.84f * s, oy + 0.92f * s, ox + 0.5f * s, oy + 0.92f * s)
+        path.cubicTo(ox + 0.16f * s, oy + 0.92f * s, ox + 0.14f * s, oy + 0.42f * s, ox + 0.5f * s, oy + 0.06f * s)
+        path.close()
+        scope.drawPath(path, color, style = Stroke(sw, join = StrokeJoin.Round))
     }
 
     fun rays(cx: Float, cy: Float, r1: Float, r2: Float, count: Int, phase: Float = 0f) {
@@ -228,12 +256,7 @@ private class Pen(val scope: DrawScope, val color: Color, strokeK: Float = 0.08f
                 poly(*pts)
             }
             Glyph.BURN -> {
-                val path = Path()
-                path.moveTo(ox + 0.5f * s, oy + 0.06f * s)
-                path.cubicTo(ox + 0.86f * s, oy + 0.42f * s, ox + 0.84f * s, oy + 0.92f * s, ox + 0.5f * s, oy + 0.92f * s)
-                path.cubicTo(ox + 0.16f * s, oy + 0.92f * s, ox + 0.14f * s, oy + 0.42f * s, ox + 0.5f * s, oy + 0.06f * s)
-                path.close()
-                scope.drawPath(path, color, style = Stroke(sw, join = StrokeJoin.Round))
+                drop()
                 circle(0.5f, 0.7f, 0.1f, fill = true)
             }
             Glyph.FRACTURE -> {
@@ -254,6 +277,77 @@ private class Pen(val scope: DrawScope, val color: Color, strokeK: Float = 0.08f
             Glyph.TBI -> {
                 circle(0.5f, 0.48f, 0.34f)
                 poly(0.46f, 0.24f, 0.58f, 0.44f, 0.44f, 0.52f, 0.56f, 0.72f, close = false)
+            }
+            Glyph.NOTE -> {
+                rect(0.22f, 0.1f, 0.78f, 0.9f)
+                line(0.32f, 0.32f, 0.68f, 0.32f)
+                line(0.32f, 0.5f, 0.68f, 0.5f)
+                line(0.32f, 0.68f, 0.56f, 0.68f)
+            }
+            Glyph.PRESSURE -> {
+                rect(0.38f, 0.56f, 0.92f, 0.74f)
+                circle(0.36f, 0.44f, 0.24f)
+                circle(0.36f, 0.44f, 0.07f, fill = true)
+            }
+            Glyph.PACKING -> {
+                circle(0.5f, 0.66f, 0.22f)
+                poly(0.28f, 0.1f, 0.72f, 0.2f, 0.28f, 0.3f, 0.72f, 0.4f, 0.5f, 0.56f, close = false)
+            }
+            Glyph.HEMOSTATIC -> {
+                drop()
+                line(0.5f, 0.5f, 0.5f, 0.78f)
+                line(0.36f, 0.64f, 0.64f, 0.64f)
+            }
+            Glyph.CHEST_SEAL -> {
+                rect(0.14f, 0.14f, 0.86f, 0.86f)
+                circle(0.5f, 0.5f, 0.17f)
+                circle(0.5f, 0.5f, 0.05f, fill = true)
+            }
+            Glyph.DECOMPRESSION -> {
+                line(0.22f, 0.78f, 0.6f, 0.4f, sw * 2.2f)
+                line(0.6f, 0.4f, 0.9f, 0.1f, sw * 0.7f)
+                line(0.1f, 0.7f, 0.3f, 0.9f)
+            }
+            Glyph.AIRWAY -> {
+                val path = Path()
+                path.moveTo(ox + 0.3f * s, oy + 0.14f * s)
+                path.cubicTo(ox + 0.3f * s, oy + 0.62f * s, ox + 0.5f * s, oy + 0.86f * s, ox + 0.88f * s, oy + 0.86f * s)
+                scope.drawPath(path, color, style = Stroke(sw * 1.6f, cap = StrokeCap.Round))
+                line(0.14f, 0.14f, 0.46f, 0.14f)
+            }
+            Glyph.CRIC -> {
+                line(0.14f, 0.86f, 0.52f, 0.48f, sw * 1.7f)
+                poly(0.52f, 0.48f, 0.88f, 0.12f, 0.7f, 0.52f, fill = true)
+            }
+            Glyph.ANALGESIA -> {
+                rect(0.22f, 0.38f, 0.72f, 0.62f)
+                line(0.08f, 0.5f, 0.22f, 0.5f)
+                line(0.08f, 0.36f, 0.08f, 0.64f)
+                line(0.72f, 0.5f, 0.95f, 0.5f, sw * 0.7f)
+                line(0.38f, 0.38f, 0.38f, 0.48f)
+                line(0.54f, 0.38f, 0.54f, 0.48f)
+            }
+            Glyph.TXA -> {
+                rect(0.3f, 0.32f, 0.7f, 0.9f)
+                rect(0.36f, 0.12f, 0.64f, 0.3f, fill = true)
+                line(0.3f, 0.58f, 0.7f, 0.58f)
+            }
+            Glyph.INFUSION -> {
+                rect(0.26f, 0.08f, 0.74f, 0.52f)
+                rect(0.43f, 0.6f, 0.57f, 0.74f)
+                line(0.5f, 0.52f, 0.5f, 0.6f)
+                line(0.5f, 0.74f, 0.5f, 0.94f)
+            }
+            Glyph.SPLINT -> {
+                line(0.36f, 0.08f, 0.36f, 0.92f, sw * 1.4f)
+                line(0.64f, 0.08f, 0.64f, 0.92f, sw * 1.4f)
+                line(0.24f, 0.3f, 0.76f, 0.3f)
+                line(0.24f, 0.7f, 0.76f, 0.7f)
+            }
+            Glyph.WARMING -> {
+                for (x in floatArrayOf(0.28f, 0.5f, 0.72f)) {
+                    poly(x, 0.9f, x - 0.08f, 0.76f, x + 0.08f, 0.62f, x - 0.08f, 0.48f, x + 0.08f, 0.34f, x, 0.18f, close = false)
+                }
             }
             Glyph.OTHER -> {
                 circle(0.5f, 0.5f, 0.38f)

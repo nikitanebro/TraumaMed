@@ -45,6 +45,22 @@ enum class InjuryType(val label: String, val full: String) {
     OTHER("Другое", "другое"),
 }
 
+/** Манипуляции для быстрой записи. Подробности (препарат, доза, место) — текстом в заметке. */
+enum class Procedure(val label: String, val full: String) {
+    PRESSURE("Давящая", "давящая повязка"),
+    PACKING("Тампонада", "тампонада раны"),
+    HEMOSTATIC("Гемостатик", "гемостатическое средство"),
+    CHEST_SEAL("Окклюзия", "окклюзионная повязка"),
+    DECOMPRESSION("Декомпрессия", "пункционная декомпрессия"),
+    AIRWAY("НПВ", "назофарингеальный воздуховод"),
+    CRIC("Коникотомия", "коникотомия"),
+    ANALGESIA("Обезболивание", "обезболивание"),
+    TXA("Транексам", "транексамовая кислота"),
+    INFUSION("Инфузия", "инфузия в/в или в/к"),
+    SPLINT("Иммобилизация", "шина, иммобилизация"),
+    WARMING("Согревание", "профилактика переохлаждения"),
+}
+
 data class Tourniquet(
     val id: Long,
     val limb: Limb,
@@ -63,12 +79,27 @@ data class Injury(
     val at: Long,
 )
 
+/** Запись в журнале помощи: манипуляция и/или текст. */
+data class Note(
+    val id: Long,
+    val proc: Procedure?,
+    val text: String,
+    val at: Long,
+) {
+    val title: String get() = when {
+        proc != null && text.isNotBlank() -> "${proc.full}: $text"
+        proc != null -> proc.full
+        else -> text
+    }
+}
+
 data class Casualty(
     val id: Long,
     val number: Int,
     val createdAt: Long,
     val tourniquets: List<Tourniquet> = emptyList(),
     val injuries: List<Injury> = emptyList(),
+    val notes: List<Note> = emptyList(),
     val lat: Double? = null,
     val lon: Double? = null,
 )
@@ -204,6 +235,25 @@ object Repo {
         }
     }
 
+    fun addNote(casualtyId: Long, proc: Procedure?, text: String) {
+        val n = Note(id = newId(), proc = proc, text = text.trim(), at = System.currentTimeMillis())
+        if (n.proc == null && n.text.isEmpty()) return
+        update { s ->
+            s.copy(
+                casualties = s.casualties.map { c ->
+                    if (c.id == casualtyId) c.copy(notes = c.notes + n) else c
+                },
+                selectedId = casualtyId,
+            )
+        }
+    }
+
+    fun removeNote(casualtyId: Long, noteId: Long) = update { s ->
+        s.copy(casualties = s.casualties.map { c ->
+            if (c.id == casualtyId) c.copy(notes = c.notes.filterNot { it.id == noteId }) else c
+        })
+    }
+
     fun removeInjury(casualtyId: Long, injuryId: Long) = update { s ->
         s.copy(casualties = s.casualties.map { c ->
             if (c.id == casualtyId) c.copy(injuries = c.injuries.filterNot { it.id == injuryId }) else c
@@ -275,6 +325,16 @@ object Repo {
                 inj.put(io)
             }
             co.put("inj", inj)
+            val notes = JSONArray()
+            for (n in c.notes) {
+                val no = JSONObject()
+                no.put("id", n.id)
+                no.put("proc", n.proc?.name ?: JSONObject.NULL)
+                no.put("text", n.text)
+                no.put("at", n.at)
+                notes.put(no)
+            }
+            co.put("notes", notes)
             arr.put(co)
         }
         o.put("casualties", arr)
@@ -320,6 +380,20 @@ object Repo {
                     )
                 )
             }
+            val noteArr = c.optJSONArray("notes") ?: JSONArray()
+            val notes = ArrayList<Note>()
+            for (j in 0 until noteArr.length()) {
+                val no = noteArr.getJSONObject(j)
+                notes.add(
+                    Note(
+                        id = no.getLong("id"),
+                        proc = if (no.isNull("proc")) null
+                        else runCatching { Procedure.valueOf(no.getString("proc")) }.getOrNull(),
+                        text = no.optString("text", ""),
+                        at = no.getLong("at"),
+                    )
+                )
+            }
             val injArr = c.optJSONArray("inj") ?: JSONArray()
             val injuries = ArrayList<Injury>()
             for (j in 0 until injArr.length()) {
@@ -340,6 +414,7 @@ object Repo {
                     createdAt = c.getLong("createdAt"),
                     tourniquets = tqs,
                     injuries = injuries,
+                    notes = notes,
                     lat = c.optDoubleOrNull("lat"),
                     lon = c.optDoubleOrNull("lon"),
                 )
